@@ -1,4 +1,6 @@
-package com.tellerulam.hm2mqtt;
+package com.tellerulam.hm2mqtt.binary;
+
+import com.tellerulam.hm2mqtt.HM;
 
 import java.io.*;
 import java.net.*;
@@ -176,7 +178,7 @@ public class XMLRPCServer implements Runnable
 		}
 	}
 
-	static long getIdleTime()
+	public static long getIdleTime()
 	{
 		return System.currentTimeMillis() - lastRequest;
 	}

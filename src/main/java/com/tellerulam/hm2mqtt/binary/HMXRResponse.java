@@ -1,7 +1,9 @@
 /*
  * Encapsulates a HomeMatic "XML-RPC" binary response
  */
-package com.tellerulam.hm2mqtt;
+package com.tellerulam.hm2mqtt.binary;
+
+import com.tellerulam.hm2mqtt.HMXRMap;
 
 import java.io.*;
 import java.math.*;

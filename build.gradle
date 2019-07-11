@@ -1,10 +1,10 @@
-version = '0.19'
+version = '0.19.1'
 
 apply plugin: 'java'
 apply plugin: 'eclipse'
 
-sourceCompatibility = 1.7
-targetCompatibility = 1.7
+sourceCompatibility = 1.8
+targetCompatibility = 1.8
 
 [ compileJava, compileTestJava ]*.options*.encoding = 'UTF-8'
 
@@ -18,10 +18,14 @@ repositories {
 dependencies {
 	compile 'com.eclipsesource.minimal-json:minimal-json:0.9.4'
 	compile 'org.eclipse.paho:org.eclipse.paho.client.mqttv3:1.0.2'
+	compile group: 'org.apache.xmlrpc', name: 'xmlrpc-client', version: '3.1.3'
+	compile group: 'org.apache.xmlrpc', name: 'xmlrpc-server', version: '3.1.3'
 }
 
-task listJars << {
-    configurations.compile.each { File file -> println file.name }
+task listJars {
+	doLast {
+		configurations.compile.each { File file -> println file.name }
+	}
 }
 
 jar {

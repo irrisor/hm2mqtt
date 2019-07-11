@@ -2,7 +2,7 @@
  * A HomeMatic "XML-RPC" message (outgoing)
  */
 
-package com.tellerulam.hm2mqtt;
+package com.tellerulam.hm2mqtt.binary;
 
 import java.io.UnsupportedEncodingException;
 import java.math.BigInteger;
@@ -227,4 +227,7 @@ public class HMXRMsg
 		return fullreq;
 	}
 
+	public void addArg(Object convertedValue) {
+		args.add(convertedValue);
+	}
 }

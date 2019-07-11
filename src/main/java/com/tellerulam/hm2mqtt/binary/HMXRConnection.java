@@ -2,7 +2,12 @@
  * Handles a outgoing "XML-RPC" connection with the binary encoded CCU format
  */
 
-package com.tellerulam.hm2mqtt;
+package com.tellerulam.hm2mqtt.binary;
+
+import com.tellerulam.hm2mqtt.DatapointInfo;
+import com.tellerulam.hm2mqtt.DeviceInfo;
+import com.tellerulam.hm2mqtt.HMConnection;
+import com.tellerulam.hm2mqtt.ReGaDeviceNameResolver;
 
 import java.io.IOException;
 import java.net.*;
@@ -11,8 +16,7 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.logging.*;
 
-public class HMXRConnection extends Thread
-{
+public class HMXRConnection extends Thread implements HMConnection {
 	private final Logger L=Logger.getLogger(getClass().getName());
 
 	Socket s;
@@ -25,7 +29,7 @@ public class HMXRConnection extends Thread
 
 	private boolean initFinished, newDevicesFinished=true, listDevicesFinished;
 
-	public HMXRConnection(String host,int port,String serverurl,String cbid)
+	public HMXRConnection(String host, int port, String serverurl, String cbid)
 	{
 		this.host=host;
 		this.port=port;
@@ -57,6 +61,7 @@ public class HMXRConnection extends Thread
 		}
 	}
 
+	@Override
 	public void sendInit()
 	{
 		if(cuxDkludges && !listDevicesFinished)
@@ -93,8 +98,7 @@ public class HMXRConnection extends Thread
 		}
 	}
 
-
-	public synchronized HMXRResponse sendRequest(HMXRMsg m,boolean retry) throws IOException, ParseException
+	public synchronized HMXRResponse sendRequest(HMXRMsg m, boolean retry) throws IOException, ParseException
 	{
 		try
 		{
@@ -147,40 +151,8 @@ public class HMXRConnection extends Thread
 
 	private final Set<String> warnedUnknownAddress=new HashSet<String>();
 
-	private void publish(String topic,DatapointInfo dpi,Object val,boolean retain,String address,String getID)
-	{
-		long ts=System.currentTimeMillis();
-		List<String> moreFields=new ArrayList<>();
-		if(!val.equals(dpi.lastValue))
-		{
-			dpi.lastValue=val;
-			dpi.lastValueTime=ts;
-		}
-		moreFields.add("ts");
-		moreFields.add(String.valueOf(ts));
-		moreFields.add("lc");
-		moreFields.add(String.valueOf(dpi.lastValueTime));
-		moreFields.add("hm_addr");
-		moreFields.add(address);
-		if(getID!=null)
-		{
-			moreFields.add("hm_getid");
-			moreFields.add(getID);
-		}
-		if(dpi.unit!=null && dpi.unit.length()!=0)
-		{
-			moreFields.add("hm_unit");
-			moreFields.add(dpi.unit);
-		}
-		if(dpi.type==HMValueTypes.ENUM)
-		{
-			moreFields.add("hm_enum");
-			moreFields.add(dpi.enumValues[((Integer)val).intValue()]);
-		}
-		MQTTHandler.publish(topic+"/"+dpi.name, val, retain, moreFields.toArray(new String[moreFields.size()]));
-	}
-
-	void handleEvent(List<?> parms)
+	@Override
+	public void handleEvent(List<?> parms)
 	{
 		String address=parms.get(1).toString();
 		String datapoint=parms.get(2).toString();
@@ -220,12 +192,13 @@ public class HMXRConnection extends Thread
 		}
 		else
 			topic=di.name;
-		publish(topic, dpi, val, retain, di.address, null);
+		dpi.publish(topic, val, di.address, null);
 	}
 
 	static private Executor longRunningRequestDispatcher=Executors.newCachedThreadPool();
 
-	void getValue(final DeviceInfo di,final String topic,final String datapoint,final String value)
+	@Override
+	public void getValue(final DeviceInfo di, final String topic, final String datapoint, final String value)
 	{
 		longRunningRequestDispatcher.execute(new Runnable(){
 			@Override
@@ -243,7 +216,7 @@ public class HMXRConnection extends Thread
 					{
 						// We don't want to retain ACTION one-shot keypress notifications
 						DatapointInfo dpi=di.getValueDatapointInfo(datapoint);
-						publish(topic, dpi, response.getData().get(0), !dpi.isAction(), di.address, value);
+						dpi.publish(topic, response.getData().get(0), di.address, value);
 					}
 				}
 				catch(IOException | ParseException e)
@@ -254,7 +227,8 @@ public class HMXRConnection extends Thread
 		});
 	}
 
-	void setValue(DeviceInfo di, String datapoint, String value)
+	@Override
+	public void setValue(DeviceInfo di, String datapoint, String value)
 	{
 		HMXRMsg m=new HMXRMsg("setValue");
 		m.addArg(di.address);
@@ -268,30 +242,7 @@ public class HMXRConnection extends Thread
 				L.info("Unknown datapoint "+di.address+"."+datapoint+", ignoring set");
 				return;
 			}
-			switch(dpi.type)
-			{
-				case FLOAT:
-					m.addArg(Double.valueOf(value));
-					break;
-				case ENUM:
-				case INTEGER:
-					m.addArg(Integer.valueOf(value));
-					break;
-				case BOOL:
-				case ACTION:
-					if("true".equalsIgnoreCase(value))
-						m.addArg(Boolean.TRUE);
-					else if("false".equalsIgnoreCase(value))
-						m.addArg(Boolean.FALSE);
-					else if(Double.parseDouble(value)!=0)
-						m.addArg(Boolean.TRUE);
-					else
-						m.addArg(Boolean.FALSE);
-					break;
-				case STRING:
-					m.addArg(value);
-					break;
-			}
+			m.addArg(dpi.convertedValue(value));
 			HMXRResponse response=sendRequest(m);
 			L.log(Level.INFO,"setValue returned "+response);
 			return;
@@ -307,6 +258,7 @@ public class HMXRConnection extends Thread
 	 * (i.e. devices it knows, and we didn't include in our call to listDevices)
 	 */
 
+	@Override
 	public void handleNewDevices(List<?> parms) throws IOException, ParseException
 	{
 		newDevicesFinished=false;
@@ -341,6 +293,7 @@ public class HMXRConnection extends Thread
 	 * This is called by the XML-RPC server to query our list of known devices.
 	 * We only need to fill in address and version.
 	 */
+	@Override
 	public HMXRMsg handleListDevices(List<?> parms)
 	{
 		List<Object> devList=new ArrayList<>();
@@ -357,6 +310,7 @@ public class HMXRConnection extends Thread
 		return m;
 	}
 
+	@Override
 	public void handleDeleteDevices(List<?> parms)
 	{
 		@SuppressWarnings("unchecked")
@@ -371,6 +325,7 @@ public class HMXRConnection extends Thread
 	}
 
 
+	@Override
 	@SuppressWarnings("unchecked")
 	public Map<String, DatapointInfo> getParamsetDescription(String address, String which) throws IOException, ParseException
 	{
@@ -396,7 +351,8 @@ public class HMXRConnection extends Thread
 		return res;
 	}
 
-	void reportValueUsage(DeviceInfo di,String datapoint,boolean use)
+	@Override
+	public void reportValueUsage(DeviceInfo di, String datapoint, boolean use)
 	{
 		HMXRMsg m=new HMXRMsg("reportValueUsage");
 		m.addArg(di.address);
@@ -413,7 +369,8 @@ public class HMXRConnection extends Thread
 	}
 
 
-	void sendPing()
+	@Override
+	public void sendPing()
 	{
 		HMXRMsg m=new HMXRMsg("ping");
 		m.addArg("hmq2mqtt");
